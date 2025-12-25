@@ -19,7 +19,7 @@ var (
 	// 硬编码的配置
 	repoURL          = "https://github.com/0xachong/polywin.git"
 	targetExecutable = "server.exe"
-	checkInterval    = 5 * time.Minute
+	checkInterval    = 30 * time.Second
 	enableAutoUpdate = true
 )
 
