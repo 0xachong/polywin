@@ -125,10 +125,13 @@ func (u *Updater) checkForUpdates() {
 
 	if hasUpdate {
 		log.Printf("发现新版本: %s，当前版本: %s", newVersion, u.config.CurrentVersion)
+		log.Printf("开始执行更新流程...")
 		u.setPendingUpdate(true)
 		if err := u.performUpdate(newVersion); err != nil {
 			log.Printf("更新失败: %v", err)
 			u.setPendingUpdate(false)
+			// 即使更新失败，也更新 lastCommit，避免重复尝试
+			// 但保留错误信息以便调试
 		} else {
 			log.Println("更新完成，等待服务器程序重启以应用更新")
 		}
@@ -249,13 +252,24 @@ func (u *Updater) performUpdate(newVersion string) error {
 	execDir := filepath.Dir(targetPath)
 	execName := filepath.Base(targetPath)
 
+	log.Printf("准备从 GitHub Releases 下载新版本到: %s", execDir)
+
 	// 直接从 GitHub Releases 下载新版本（不再构建）
 	if err := u.downloadServerFromGitHubReleases(execDir, execName); err != nil {
+		log.Printf("下载失败，错误详情: %v", err)
 		return fmt.Errorf("下载新版本失败: %v", err)
 	}
 
+	log.Printf("下载成功，准备替换文件...")
+
 	// 执行更新（不重启，由守护程序监控重启）
-	return u.updateTarget(targetPath)
+	if err := u.updateTarget(targetPath); err != nil {
+		log.Printf("文件替换失败，错误详情: %v", err)
+		return fmt.Errorf("文件替换失败: %v", err)
+	}
+
+	log.Printf("更新流程完成")
+	return nil
 }
 
 // buildNewVersion 构建新版本
@@ -422,20 +436,35 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 
 	// 尝试每个下载源
 	outputPath := filepath.Join(targetDir, execName+".new")
+	log.Printf("目标下载路径: %s", outputPath)
+	
 	var lastErr error
-	for _, source := range downloadSources {
+	for i, source := range downloadSources {
 		if source.url == "" {
+			log.Printf("跳过下载源 %d (%s): URL 为空", i+1, source.name)
 			continue
 		}
 
-		log.Printf("尝试从 %s 下载...", source.name)
+		log.Printf("尝试从 %s 下载 (URL: %s)...", source.name, source.url)
 		if err := u.downloadFileToPath(source.url, outputPath); err != nil {
 			log.Printf("从 %s 下载失败: %v", source.name, err)
 			lastErr = err
 			continue
 		}
 
-		log.Printf("从 %s 下载成功！", source.name)
+		// 验证文件是否存在且大小大于0
+		if info, err := os.Stat(outputPath); err != nil {
+			log.Printf("下载的文件不存在: %v", err)
+			lastErr = fmt.Errorf("下载的文件不存在: %v", err)
+			continue
+		} else if info.Size() == 0 {
+			log.Printf("下载的文件大小为0，删除并尝试下一个源")
+			os.Remove(outputPath)
+			lastErr = fmt.Errorf("下载的文件大小为0")
+			continue
+		}
+
+		log.Printf("从 %s 下载成功！文件大小: %d 字节", source.name, info.Size())
 		return nil
 	}
 
