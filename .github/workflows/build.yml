@@ -28,8 +28,17 @@ jobs:
 
     - name: Build polywin.exe (daemon)
       run: |
-        GOOS=windows GOARCH=amd64 go build -o polywin.exe -ldflags "-X main.version=${GITHUB_REF_NAME:-dev}" ./cmd/polywin
+        GOOS=windows GOARCH=amd64 go build -o polywin.exe \
+          -ldflags "-X main.version=${GITHUB_REF_NAME:-dev} -s -w" \
+          -trimpath \
+          ./cmd/polywin
         echo "✓ polywin.exe 构建完成"
+        
+        # 尝试使用 UPX 压缩（如果可用）
+        if command -v upx &> /dev/null; then
+          echo "使用 UPX 压缩 polywin.exe..."
+          upx --best --lzma polywin.exe || echo "UPX 压缩失败或已跳过"
+        fi
 
     - name: Build server.exe
       run: |
@@ -49,8 +58,16 @@ jobs:
           SERVER_VERSION="${GIT_COMMIT}"
         fi
         GOOS=windows GOARCH=amd64 go build -o server.exe \
-          -ldflags "-X main.serverVersion=${SERVER_VERSION} -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME}" \
+          -ldflags "-X main.serverVersion=${SERVER_VERSION} -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME} -s -w" \
+          -trimpath \
           ./cmd/server
+        
+        # 尝试使用 UPX 压缩（如果可用）
+        if command -v upx &> /dev/null; then
+          echo "使用 UPX 压缩 server.exe..."
+          upx --best --lzma server.exe || echo "UPX 压缩失败或已跳过"
+        fi
+        
         echo "✓ server.exe 构建完成"
         echo "  版本: ${SERVER_VERSION}"
         echo "  Tag: ${GIT_TAG}"

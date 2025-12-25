@@ -7,7 +7,16 @@ echo "开始构建 PolyWin 项目..."
 # 构建守护程序 (polywin.exe)
 # 注意：repo URL 已硬编码为 https://github.com/0xachong/polywin.git
 echo "构建守护程序 (polywin.exe)..."
-GOOS=windows GOARCH=amd64 go build -o polywin.exe -ldflags "-X main.version=1.0.0" ./cmd/polywin
+GOOS=windows GOARCH=amd64 go build -o polywin.exe \
+    -ldflags "-X main.version=1.0.0 -s -w" \
+    -trimpath \
+    ./cmd/polywin
+
+# 尝试使用 UPX 压缩（如果可用）
+if command -v upx &> /dev/null; then
+    echo "使用 UPX 压缩 polywin.exe..."
+    upx --best --lzma polywin.exe 2>/dev/null || echo "UPX 压缩失败或已跳过"
+fi
 
 if [ $? -eq 0 ]; then
     echo "✓ 守护程序构建成功: polywin.exe"
@@ -23,8 +32,15 @@ fi
         GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
         BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         GOOS=windows GOARCH=amd64 go build -o server.exe \
-            -ldflags "-X main.serverVersion=1.0.0 -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME}" \
+            -ldflags "-X main.serverVersion=1.0.0 -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME} -s -w" \
+            -trimpath \
             ./cmd/server
+
+        # 尝试使用 UPX 压缩（如果可用）
+        if command -v upx &> /dev/null; then
+            echo "使用 UPX 压缩 server.exe..."
+            upx --best --lzma server.exe 2>/dev/null || echo "UPX 压缩失败或已跳过"
+        fi
 
 if [ $? -eq 0 ]; then
     echo "✓ 服务器程序构建成功: server.exe"
