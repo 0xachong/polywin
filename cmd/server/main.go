@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -246,4 +247,50 @@ func parseUserAgent(userAgent string) map[string]string {
 	}
 
 	return info
+}
+
+// getServerIPs 获取服务器所有网络接口的 IP 地址
+func getServerIPs() []string {
+	var ips []string
+
+	// 获取所有网络接口
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return []string{"unknown"}
+	}
+
+	for _, iface := range interfaces {
+		// 跳过回环接口和未启用的接口
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
+		// 获取接口的地址列表
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			// 只添加 IPv4 地址，排除回环地址
+			if ip != nil && ip.To4() != nil && !ip.IsLoopback() {
+				ips = append(ips, ip.String())
+			}
+		}
+	}
+
+	// 如果没有找到 IP，返回 localhost
+	if len(ips) == 0 {
+		ips = []string{"127.0.0.1"}
+	}
+
+	return ips
 }
