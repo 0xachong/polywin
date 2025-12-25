@@ -7,6 +7,10 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: v1.0.0)'
+        required: false
 
 permissions:
   contents: write
@@ -117,38 +121,44 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Get latest release version
+    - name: Extract version from commit message
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      id: get_version
+      id: extract_version
       run: |
-        # 获取最新的 release tag（排除 latest）
-        LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1)
-        if [ -z "$LATEST_TAG" ]; then
-          # 如果没有版本 tag，从 1.0.0 开始
-          NEW_VERSION="v1.0.0"
-        else
-          # 提取版本号并递增
-          VERSION_NUM=$(echo $LATEST_TAG | sed 's/v//')
-          MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
-          MINOR=$(echo $VERSION_NUM | cut -d. -f2)
-          PATCH=$(echo $VERSION_NUM | cut -d. -f3)
-          
-          # 递增 patch 版本号
-          PATCH=$((PATCH + 1))
-          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        # 从提交信息中提取版本号（格式：v1.0.0 或 version: v1.0.0）
+        COMMIT_MSG="${{ github.event.head_commit.message }}"
+        echo "提交信息: $COMMIT_MSG"
+        
+        # 尝试提取版本号（支持多种格式）
+        VERSION=$(echo "$COMMIT_MSG" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+        
+        if [ -z "$VERSION" ]; then
+          # 如果没有找到版本号，检查是否包含 version: 关键字
+          VERSION=$(echo "$COMMIT_MSG" | grep -iE 'version:\s*v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          # 如果提取的版本号没有 v 前缀，添加它
+          if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
         fi
         
-        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-        echo "构建版本: $NEW_VERSION"
+        if [ -z "$VERSION" ]; then
+          echo "未在提交信息中找到版本号，跳过构建"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "提取的版本号: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "skip=false" >> $GITHUB_OUTPUT
 
     - name: Create/Update Release (on main branch push)
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.extract_version.outputs.skip != 'true'
       uses: softprops/action-gh-release@v1
       with:
         files: |
           server.exe
-        tag_name: ${{ steps.get_version.outputs.version }}
-        name: Release ${{ steps.get_version.outputs.version }}
+        tag_name: ${{ steps.extract_version.outputs.version }}
+        name: Release ${{ steps.extract_version.outputs.version }}
         body: |
           ## Release ${{ steps.get_version.outputs.version }}
           
@@ -159,10 +169,12 @@ jobs:
           - 构建时间: ${{ github.event.head_commit.timestamp || github.run_started_at }}
           - 提交: ${{ github.sha }}
           - 分支: ${{ github.ref_name }}
+          - 版本号来源: 提交信息
           
           ### 注意
           - 这是自动构建的版本
           - `polywin.exe` 会自动从这里下载 `server.exe`
+          - 版本号从提交信息中提取
         draft: false
         prerelease: false
         generate_release_notes: false
