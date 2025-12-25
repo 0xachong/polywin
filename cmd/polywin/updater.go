@@ -327,14 +327,19 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 	// 首先尝试从 Releases API 获取
 	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
 	req, err := http.NewRequestWithContext(u.ctx, "GET", apiURL, nil)
-	if err == nil {
+	if err != nil {
+		log.Printf("创建 GitHub Releases API 请求失败: %v，将使用备用下载源", err)
+	} else {
 		// 添加 User-Agent 头，GitHub API 要求必须有 User-Agent
 		req.Header.Set("User-Agent", "PolyWin-Updater/1.0")
 		// 添加 Accept 头，明确请求 JSON 格式
 		req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 		resp, err := client.Do(req)
-		if err == nil {
+		if err != nil {
+			log.Printf("获取 GitHub Releases API 失败: %v，将使用备用下载源", err)
+		} else {
+			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				var release struct {
 					TagName string `json:"tag_name"`
@@ -361,9 +366,6 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 			} else {
 				log.Printf("GitHub Releases API 返回状态码: %d，将使用备用下载源", resp.StatusCode)
 			}
-			resp.Body.Close()
-		} else if err != nil {
-			log.Printf("获取 GitHub Releases API 失败: %v，将使用备用下载源", err)
 		}
 	}
 
