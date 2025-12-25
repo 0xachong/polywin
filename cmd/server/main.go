@@ -117,16 +117,34 @@ func main() {
 		// 解析 User-Agent 获取设备信息
 		deviceInfo := parseUserAgent(userAgent)
 
+		// 获取服务器 IP 地址
+		serverIPs := getServerIPs()
+
+		// 服务器配置信息
+		serverConfig := gin.H{
+			"host":       serverHost,
+			"port":       serverPort,
+			"address":    serverHost + ":" + serverPort,
+			"version":    serverVersion,
+			"tag":        serverTag,
+			"commit":     serverCommit,
+			"build_time": serverBuildTime,
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"ip":           realIP,
-			"client_ip":    clientIP,
-			"user_agent":   userAgent,
-			"device_info":  deviceInfo,
+			// 客户端信息
+			"client": gin.H{
+				"ip":          realIP,
+				"client_ip":   clientIP,
+				"user_agent":  userAgent,
+				"device_info": deviceInfo,
+			},
+			// 服务器信息
+			"server": gin.H{
+				"ips":   serverIPs,
+				"config": serverConfig,
+			},
 			"request_time": time.Now().Format("2006-01-02 15:04:05"),
-			"version":      serverVersion,
-			"tag":          serverTag,
-			"commit":       serverCommit,
-			"build_time":  serverBuildTime,
 		})
 	})
 
