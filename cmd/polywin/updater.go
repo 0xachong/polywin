@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/go-git/go-git/v5"
 )
 
 // UpdaterConfig 更新器配置
@@ -44,7 +40,6 @@ type Updater struct {
 	config         *UpdaterConfig
 	ctx            context.Context
 	cancel         context.CancelFunc
-	lastCommit     string
 	lastReleaseTag string // 记录最后检查的 release tag
 	pendingUpdate  bool
 	updateMutex    sync.Mutex
@@ -188,7 +183,7 @@ func (u *Updater) checkGitUpdates() (bool, string) {
 	}
 
 	currentCommit := commit.Hash.String()
-	
+
 	// 如果是第一次检查，保存当前提交
 	if u.lastCommit == "" {
 		u.lastCommit = currentCommit
@@ -362,7 +357,7 @@ func (u *Updater) buildNewVersion(targetDir, execName string) error {
 	if strings.HasPrefix(repoURL, "github.com:") {
 		repoURL = "git@" + repoURL
 	}
-	
+
 	_, err := git.PlainClone(tempDir, false, &git.CloneOptions{
 		URL:      repoURL,
 		Progress: os.Stdout,
@@ -373,7 +368,7 @@ func (u *Updater) buildNewVersion(targetDir, execName string) error {
 
 	// 构建 server 可执行文件（从 cmd/server 目录）
 	outputPath := filepath.Join(targetDir, execName+".new")
-	
+
 	// 构建 server 程序
 	var buildCmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -384,7 +379,7 @@ func (u *Updater) buildNewVersion(targetDir, execName string) error {
 
 	buildCmd.Dir = tempDir
 	buildCmd.Env = os.Environ()
-	
+
 	output, err := buildCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("构建失败: %v, 输出: %s", err, string(output))
@@ -513,7 +508,7 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 	// 尝试每个下载源
 	outputPath := filepath.Join(targetDir, execName+".new")
 	log.Printf("目标下载路径: %s", outputPath)
-	
+
 	var lastErr error
 	for i, source := range downloadSources {
 		if source.url == "" {
@@ -680,4 +675,3 @@ func (u *Updater) updateUnix(targetPath, newExecPath, oldExecPath string) error 
 	u.setPendingUpdate(false) // 标记更新完成，等待重启
 	return nil
 }
-
