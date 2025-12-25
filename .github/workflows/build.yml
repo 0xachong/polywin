@@ -35,7 +35,41 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y upx-ucl || echo "UPX installation failed, continuing without compression"
 
+    - name: Extract version from commit message
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      id: extract_version
+      run: |
+        # 从提交信息中提取版本号（格式：v1.0.0 或 version: v1.0.0）
+        COMMIT_MSG="${{ github.event.head_commit.message }}"
+        echo "提交信息: $COMMIT_MSG"
+        
+        # 尝试提取版本号（支持多种格式）
+        VERSION=$(echo "$COMMIT_MSG" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+        
+        if [ -z "$VERSION" ]; then
+          # 如果没有找到版本号，检查是否包含 version: 关键字
+          VERSION=$(echo "$COMMIT_MSG" | grep -iE 'version:\s*v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          # 如果提取的版本号没有 v 前缀，添加它
+          if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
+        fi
+        
+        if [ -z "$VERSION" ]; then
+          echo "未在提交信息中找到版本号，跳过构建"
+          echo "skip=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        echo "提取的版本号: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "skip=false" >> $GITHUB_OUTPUT
+
     - name: Build polywin.exe (daemon)
+      if: |
+        startsWith(github.ref, 'refs/tags/') || 
+        (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.extract_version.outputs.skip != 'true') ||
+        github.event_name == 'workflow_dispatch'
       run: |
         GOOS=windows GOARCH=amd64 go build -o polywin.exe \
           -ldflags "-X main.version=${GITHUB_REF_NAME:-dev} -s -w" \
@@ -50,22 +84,39 @@ jobs:
         fi
 
     - name: Build server.exe
+      if: |
+        startsWith(github.ref, 'refs/tags/') || 
+        (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.extract_version.outputs.skip != 'true') ||
+        github.event_name == 'workflow_dispatch'
       run: |
         # 获取 Git 信息
-        # 如果是 tag 推送，使用 tag 名称；否则尝试获取最新 tag
+        # 如果是 tag 推送，使用 tag 名称
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           GIT_TAG="${{ github.ref_name }}"
-        else
-          GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
-        fi
-        GIT_COMMIT=$(git rev-parse --short HEAD)
-        BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        # 版本号：如果是 tag 则使用 tag，否则使用 commit short hash
-        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           SERVER_VERSION="${{ github.ref_name }}"
+        elif [[ "${{ github.event_name }}" == "push" ]] && [[ "${{ steps.extract_version.outputs.skip }}" != "true" ]]; then
+          # 从提交信息中提取的版本号
+          GIT_TAG="${{ steps.extract_version.outputs.version }}"
+          SERVER_VERSION="${{ steps.extract_version.outputs.version }}"
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ -n "${{ github.event.inputs.version }}" ]]; then
+          # 手动触发时使用输入的版本号
+          GIT_TAG="${{ github.event.inputs.version }}"
+          SERVER_VERSION="${{ github.event.inputs.version }}"
         else
+          # 默认使用 commit hash（用于 tag 推送或其他情况）
+          GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+          GIT_COMMIT=$(git rev-parse --short HEAD)
           SERVER_VERSION="${GIT_COMMIT}"
         fi
+        
+        # 如果还没有设置，获取其他信息
+        if [[ -z "$GIT_TAG" ]]; then
+          GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+        fi
+        if [[ -z "$GIT_COMMIT" ]]; then
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+        fi
+        BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         GOOS=windows GOARCH=amd64 go build -o server.exe \
           -ldflags "-X main.serverVersion=${SERVER_VERSION} -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME} -s -w" \
           -trimpath \
@@ -84,6 +135,10 @@ jobs:
         echo "  构建时间: ${BUILD_TIME}"
 
     - name: Upload artifacts
+      if: |
+        startsWith(github.ref, 'refs/tags/') || 
+        (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.extract_version.outputs.skip != 'true') ||
+        github.event_name == 'workflow_dispatch'
       uses: actions/upload-artifact@v4
       with:
         name: windows-binaries
@@ -120,36 +175,6 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Extract version from commit message
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      id: extract_version
-      run: |
-        # 从提交信息中提取版本号（格式：v1.0.0 或 version: v1.0.0）
-        COMMIT_MSG="${{ github.event.head_commit.message }}"
-        echo "提交信息: $COMMIT_MSG"
-        
-        # 尝试提取版本号（支持多种格式）
-        VERSION=$(echo "$COMMIT_MSG" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-        
-        if [ -z "$VERSION" ]; then
-          # 如果没有找到版本号，检查是否包含 version: 关键字
-          VERSION=$(echo "$COMMIT_MSG" | grep -iE 'version:\s*v?[0-9]+\.[0-9]+\.[0-9]+' | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
-          # 如果提取的版本号没有 v 前缀，添加它
-          if [ -n "$VERSION" ] && [[ ! "$VERSION" =~ ^v ]]; then
-            VERSION="v$VERSION"
-          fi
-        fi
-        
-        if [ -z "$VERSION" ]; then
-          echo "未在提交信息中找到版本号，跳过构建"
-          echo "skip=true" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        
-        echo "提取的版本号: $VERSION"
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "skip=false" >> $GITHUB_OUTPUT
 
     - name: Create/Update Release (on main branch push)
       if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.extract_version.outputs.skip != 'true'
@@ -160,10 +185,10 @@ jobs:
         tag_name: ${{ steps.extract_version.outputs.version }}
         name: Release ${{ steps.extract_version.outputs.version }}
         body: |
-          ## Release ${{ steps.get_version.outputs.version }}
+          ## Release ${{ steps.extract_version.outputs.version }}
           
           ### 文件说明
-          - **server.exe** - HTTP 服务器（版本 ${{ steps.get_version.outputs.version }}）
+          - **server.exe** - HTTP 服务器（版本 ${{ steps.extract_version.outputs.version }}）
           
           ### 构建信息
           - 构建时间: ${{ github.event.head_commit.timestamp || github.run_started_at }}
