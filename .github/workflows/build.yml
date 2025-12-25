@@ -69,7 +69,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Create Release (on main branch push)
+    - name: Create/Update Release (on main branch push)
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       uses: softprops/action-gh-release@v1
       with:
@@ -88,6 +88,8 @@ jobs:
           - `polywin.exe` 会自动从这里下载 `server.exe`
         draft: false
         prerelease: true
+        generate_release_notes: false
+        make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
