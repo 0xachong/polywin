@@ -119,28 +119,36 @@ func downloadServerFromGitHub(targetDir string) error {
 		req.Header.Set("Accept", "application/vnd.github.v3+json")
 		
 		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			var release struct {
-				TagName string `json:"tag_name"`
-				Assets  []struct {
-					Name               string `json:"name"`
-					BrowserDownloadURL string `json:"browser_download_url"`
-				} `json:"assets"`
-			}
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				var release struct {
+					TagName string `json:"tag_name"`
+					Assets  []struct {
+						Name               string `json:"name"`
+						BrowserDownloadURL string `json:"browser_download_url"`
+					} `json:"assets"`
+				}
 
-			if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
-				// 查找 server.exe
-				for _, asset := range release.Assets {
-					if asset.Name == "server.exe" {
-						downloadSources[0].url = asset.BrowserDownloadURL
-						log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
-						break
+				if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
+					// 查找 server.exe
+					for _, asset := range release.Assets {
+						if asset.Name == "server.exe" {
+							downloadSources[0].url = asset.BrowserDownloadURL
+							log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
+							break
+						}
 					}
 				}
+			} else if resp.StatusCode == http.StatusForbidden {
+				log.Printf("GitHub Releases API 返回 403（请求频率限制），将使用备用下载源")
+			} else if resp.StatusCode == http.StatusNotFound {
+				log.Printf("GitHub Releases API 返回 404（可能还没有 Release），将使用备用下载源")
+			} else {
+				log.Printf("GitHub Releases API 返回状态码: %d，将使用备用下载源", resp.StatusCode)
 			}
 			resp.Body.Close()
 		} else if err != nil {
-			log.Printf("获取 GitHub Releases API 失败: %v", err)
+			log.Printf("获取 GitHub Releases API 失败: %v，将使用备用下载源", err)
 		}
 	}
 
