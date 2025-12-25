@@ -216,15 +216,9 @@ func (u *Updater) performUpdate(newVersion string) error {
 	execDir := filepath.Dir(targetPath)
 	execName := filepath.Base(targetPath)
 
-	// 构建新版本
-	if u.config.RepoURL != "" {
-		if err := u.buildNewVersion(execDir, execName); err != nil {
-			return fmt.Errorf("构建新版本失败: %v", err)
-		}
-	} else if u.config.UpdateURL != "" {
-		if err := u.downloadNewVersion(execDir, execName); err != nil {
-			return fmt.Errorf("下载新版本失败: %v", err)
-		}
+	// 直接从 GitHub Releases 下载新版本（不再构建）
+	if err := u.downloadServerFromGitHubReleases(execDir, execName); err != nil {
+		return fmt.Errorf("下载新版本失败: %v", err)
 	}
 
 	// 执行更新（不重启，由守护程序监控重启）
