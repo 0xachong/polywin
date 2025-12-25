@@ -239,18 +239,43 @@ func monitorServer(serverPath string, updater *Updater) {
 				log.Println("服务器程序正常退出")
 			}
 
+			// 检查是否有待处理的更新
+			if updater.HasPendingUpdate() {
+				log.Println("检测到待更新版本，等待文件替换完成...")
+				
+				// 检查新版本文件是否存在
+				newExecPath := serverPath + ".new"
+				maxWait := 30 // 最多等待30秒
+				waited := 0
+				
+				for waited < maxWait {
+					// 检查新版本文件是否存在
+					if _, err := os.Stat(newExecPath); err == nil {
+						// 检查原文件是否已被替换（通过检查 .old 文件是否存在）
+						oldExecPath := serverPath + ".old"
+						if _, err := os.Stat(oldExecPath); err == nil {
+							log.Println("检测到文件已替换，准备重启...")
+							updater.setPendingUpdate(false)
+							break
+						}
+					}
+					
+					time.Sleep(1 * time.Second)
+					waited++
+					if waited%5 == 0 {
+						log.Printf("等待文件替换中... (%d/%d 秒)", waited, maxWait)
+					}
+				}
+				
+				if waited >= maxWait {
+					log.Println("等待文件替换超时，尝试直接重启...")
+					updater.setPendingUpdate(false)
+				}
+			}
+
 			// 等待一段时间后重启
 			log.Println("等待 3 秒后重启服务器程序...")
 			time.Sleep(3 * time.Second)
-
-			// 检查是否有新版本需要更新
-			if updater.HasPendingUpdate() {
-				log.Println("检测到待更新版本，等待更新完成...")
-				// 等待更新完成
-				for updater.HasPendingUpdate() {
-					time.Sleep(1 * time.Second)
-				}
-			}
 
 			// 重启服务器
 			startServer(serverPath)

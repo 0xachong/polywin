@@ -570,7 +570,8 @@ del "%%~f0"
 	}
 
 	log.Println("更新脚本已启动，将在目标程序退出后自动替换文件")
-	u.setPendingUpdate(false) // 标记更新完成，等待重启
+	// 注意：不在这里设置 pendingUpdate = false
+	// 让 monitorServer 在重启时检查文件是否已替换
 	return nil
 }
 
