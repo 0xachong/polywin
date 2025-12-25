@@ -4,7 +4,7 @@
 package main
 
 import (
-	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -16,21 +16,20 @@ import (
 
 var (
 	version          = "1.0.0"
-	checkInterval    = flag.Duration("check-interval", 5*time.Minute, "更新检查间隔时间")
-	repoURL          = flag.String("repo", "https://github.com/0xachong/polywin.git", "Git 仓库 URL")
-	targetExecutable = flag.String("target", "server.exe", "目标可执行文件名（需要更新的程序）")
-	enableAutoUpdate = flag.Bool("auto-update", true, "是否启用自动更新")
+	// 硬编码的配置
+	repoURL          = "https://github.com/0xachong/polywin.git"
+	targetExecutable = "server.exe"
+	checkInterval    = 5 * time.Minute
+	enableAutoUpdate = true
 )
 
 var serverCmd *exec.Cmd
 
 func main() {
-	flag.Parse()
-
 	log.Printf("PolyWin 守护程序启动，版本: %s", version)
-	log.Printf("目标程序: %s", *targetExecutable)
-	log.Printf("Git 仓库: %s", *repoURL)
-	log.Printf("更新检查间隔: %v", *checkInterval)
+	log.Printf("目标程序: %s", targetExecutable)
+	log.Printf("Git 仓库: %s", repoURL)
+	log.Printf("更新检查间隔: %v", checkInterval)
 
 	// 获取当前目录
 	execPath, err := os.Executable()
@@ -38,28 +37,34 @@ func main() {
 		log.Fatalf("获取可执行文件路径失败: %v", err)
 	}
 	execDir := filepath.Dir(execPath)
-	targetPath := filepath.Join(execDir, *targetExecutable)
+	targetPath := filepath.Join(execDir, targetExecutable)
 
-	// 检查目标程序是否存在
+	// 检查目标程序是否存在，不存在则尝试构建
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 		log.Printf("目标程序 %s 不存在，尝试构建...", targetPath)
 		if err := buildServer(execDir); err != nil {
-			log.Fatalf("构建目标程序失败: %v", err)
+			log.Printf("构建失败: %v，尝试从当前目录查找 server.go...", err)
+			// 如果构建失败，尝试从当前目录构建
+			wd, _ := os.Getwd()
+			if err := buildServerFromDir(wd, execDir); err != nil {
+				log.Fatalf("无法构建目标程序，请确保 server.go 文件存在: %v", err)
+			}
 		}
+		log.Printf("目标程序构建成功: %s", targetPath)
 	}
 
 	// 创建更新器
 	updater := NewUpdater(&UpdaterConfig{
-		RepoURL:          *repoURL,
-		CheckInterval:    *checkInterval,
-		EnableAutoUpdate: *enableAutoUpdate,
+		RepoURL:          repoURL,
+		CheckInterval:    checkInterval,
+		EnableAutoUpdate: enableAutoUpdate,
 		CurrentVersion:   version,
-		TargetExecutable: *targetExecutable,
+		TargetExecutable: targetExecutable,
 		TargetPath:       targetPath,
 	})
 
 	// 启动更新检查协程
-	if *enableAutoUpdate {
+	if enableAutoUpdate {
 		go updater.StartUpdateChecker()
 		log.Println("自动更新检查已启动")
 	}
@@ -81,24 +86,36 @@ func main() {
 	os.Exit(0)
 }
 
-// buildServer 构建服务器程序
+// buildServer 构建服务器程序（从可执行文件所在目录查找 server.go）
 func buildServer(targetDir string) error {
 	log.Println("开始构建服务器程序...")
 
-	// 获取当前工作目录
+	// 首先尝试从可执行文件所在目录查找 server.go
+	serverGoPath := filepath.Join(targetDir, "server.go")
+	if _, err := os.Stat(serverGoPath); err == nil {
+		return buildServerFromFile(serverGoPath, targetDir)
+	}
+
+	// 如果不存在，尝试从当前工作目录查找
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	return buildServerFromDir(wd, targetDir)
+}
 
+// buildServerFromFile 从指定文件构建
+func buildServerFromFile(serverGoPath, targetDir string) error {
+	serverDir := filepath.Dir(serverGoPath)
 	outputPath := filepath.Join(targetDir, "server.exe")
-	buildCmd := exec.Command("go", "build", "-o", outputPath, "server.go")
-	buildCmd.Dir = wd
+	
+	buildCmd := exec.Command("go", "build", "-tags", "server", "-o", outputPath, "server.go")
+	buildCmd.Dir = serverDir
 	buildCmd.Env = os.Environ()
 
 	output, err := buildCmd.CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("构建失败: %v, 输出: %s", err, string(output))
 	}
 
 	if len(output) > 0 {
@@ -107,6 +124,15 @@ func buildServer(targetDir string) error {
 
 	log.Printf("服务器程序构建完成: %s", outputPath)
 	return nil
+}
+
+// buildServerFromDir 从指定目录构建
+func buildServerFromDir(sourceDir, targetDir string) error {
+	serverGoPath := filepath.Join(sourceDir, "server.go")
+	if _, err := os.Stat(serverGoPath); os.IsNotExist(err) {
+		return fmt.Errorf("server.go 文件不存在于: %s", sourceDir)
+	}
+	return buildServerFromFile(serverGoPath, targetDir)
 }
 
 // startServer 启动服务器程序
