@@ -113,6 +113,11 @@ func downloadServerFromGitHub(targetDir string) error {
 	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err == nil {
+		// 添加 User-Agent 头，GitHub API 要求必须有 User-Agent
+		req.Header.Set("User-Agent", "PolyWin-Updater/1.0")
+		// 添加 Accept 头，明确请求 JSON 格式
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			var release struct {

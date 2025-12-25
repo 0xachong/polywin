@@ -152,6 +152,11 @@ func (u *Updater) checkGitHubReleases() (bool, string) {
 		return false, ""
 	}
 
+	// 添加 User-Agent 头，GitHub API 要求必须有 User-Agent
+	req.Header.Set("User-Agent", "PolyWin-Updater/1.0")
+	// 添加 Accept 头，明确请求 JSON 格式
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("获取 GitHub Releases 信息失败: %v", err)
@@ -160,7 +165,12 @@ func (u *Updater) checkGitHubReleases() (bool, string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("GitHub Releases API 返回错误状态码: %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusForbidden {
+			log.Printf("GitHub Releases API 返回 403 错误，可能是请求频率过高或需要认证")
+			log.Printf("将尝试使用备用下载源")
+		} else {
+			log.Printf("GitHub Releases API 返回错误状态码: %d", resp.StatusCode)
+		}
 		return false, ""
 	}
 
@@ -312,6 +322,11 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
 	req, err := http.NewRequestWithContext(u.ctx, "GET", apiURL, nil)
 	if err == nil {
+		// 添加 User-Agent 头，GitHub API 要求必须有 User-Agent
+		req.Header.Set("User-Agent", "PolyWin-Updater/1.0")
+		// 添加 Accept 头，明确请求 JSON 格式
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			var release struct {
