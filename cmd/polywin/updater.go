@@ -254,15 +254,15 @@ func (u *Updater) buildNewVersion(targetDir, execName string) error {
 		return fmt.Errorf("克隆仓库失败: %v", err)
 	}
 
-	// 构建 server.go 可执行文件
+	// 构建 server 可执行文件（从 cmd/server 目录）
 	outputPath := filepath.Join(targetDir, execName+".new")
 	
-	// 构建 server.go（目标程序）
+	// 构建 server 程序
 	var buildCmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		buildCmd = exec.Command("go", "build", "-o", outputPath, "server.go")
+		buildCmd = exec.Command("go", "build", "-o", outputPath, "./cmd/server")
 	} else {
-		buildCmd = exec.Command("go", "build", "-o", outputPath, "server.go")
+		buildCmd = exec.Command("go", "build", "-o", outputPath, "./cmd/server")
 	}
 
 	buildCmd.Dir = tempDir
