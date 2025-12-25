@@ -4,10 +4,10 @@
 
 echo "开始构建 PolyWin 项目..."
 
-# 构建守护程序 (polywin.exe) - 只编译 main.go 和 updater.go
+# 构建守护程序 (polywin.exe)
 # 注意：repo URL 已硬编码为 https://github.com/0xachong/polywin.git
 echo "构建守护程序 (polywin.exe)..."
-GOOS=windows GOARCH=amd64 go build -o polywin.exe -ldflags "-X main.version=1.0.0" main.go updater.go
+GOOS=windows GOARCH=amd64 go build -o polywin.exe -ldflags "-X main.version=1.0.0" ./cmd/polywin
 
 if [ $? -eq 0 ]; then
     echo "✓ 守护程序构建成功: polywin.exe"
