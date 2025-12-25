@@ -72,25 +72,54 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Get latest release version
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      id: get_version
+      run: |
+        # 获取最新的 release tag（排除 latest）
+        LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n 1)
+        if [ -z "$LATEST_TAG" ]; then
+          # 如果没有版本 tag，从 1.0.0 开始
+          NEW_VERSION="v1.0.0"
+        else
+          # 提取版本号并递增
+          VERSION_NUM=$(echo $LATEST_TAG | sed 's/v//')
+          MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+          MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+          PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+          
+          # 递增 patch 版本号
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        fi
+        
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "构建版本: $NEW_VERSION"
+
     - name: Create/Update Release (on main branch push)
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       uses: softprops/action-gh-release@v1
       with:
         files: |
           server.exe
-        tag_name: latest
-        name: Latest Build
+        tag_name: ${{ steps.get_version.outputs.version }}
+        name: Release ${{ steps.get_version.outputs.version }}
         body: |
-          ## Latest Build
+          ## Release ${{ steps.get_version.outputs.version }}
           
           ### 文件说明
-          - **server.exe** - HTTP 服务器（最新构建版本）
+          - **server.exe** - HTTP 服务器（版本 ${{ steps.get_version.outputs.version }}）
+          
+          ### 构建信息
+          - 构建时间: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          - 提交: ${{ github.sha }}
+          - 分支: ${{ github.ref_name }}
           
           ### 注意
-          - 这是自动构建的最新版本
+          - 这是自动构建的版本
           - `polywin.exe` 会自动从这里下载 `server.exe`
         draft: false
-        prerelease: true
+        prerelease: false
         generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
