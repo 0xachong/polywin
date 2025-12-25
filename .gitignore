@@ -1,8 +1,9 @@
-# 编译产物
+# 编译产物（但保留 releases 目录中的文件）
 *.exe
 *.dll
 *.so
 *.dylib
+!releases/**/*.exe
 
 # 测试二进制文件
 *.test
