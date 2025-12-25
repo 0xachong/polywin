@@ -104,10 +104,17 @@ func downloadServerFromGitHub(targetDir string) error {
 		},
 	}
 
+	// 创建带超时的 HTTP 客户端（15秒超时）
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
 	// 首先尝试从 Releases API 获取
 	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
-	resp, err := http.Get(apiURL)
-	if err == nil && resp.StatusCode == http.StatusOK {
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err == nil {
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
 		var release struct {
 			TagName string `json:"tag_name"`
 			Assets  []struct {
@@ -125,8 +132,10 @@ func downloadServerFromGitHub(targetDir string) error {
 					break
 				}
 			}
+			resp.Body.Close()
+		} else if err != nil {
+			log.Printf("获取 GitHub Releases API 失败: %v", err)
 		}
-		resp.Body.Close()
 	}
 
 	// 尝试每个下载源
@@ -152,7 +161,12 @@ func downloadServerFromGitHub(targetDir string) error {
 
 // downloadFile 下载文件
 func downloadFile(url, outputPath string) error {
-	resp, err := http.Get(url)
+	// 创建带超时的 HTTP 客户端（60秒超时）
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("请求失败: %v", err)
 	}

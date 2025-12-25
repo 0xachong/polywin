@@ -99,6 +99,14 @@ func (u *Updater) Stop() {
 
 // checkForUpdates 检查更新
 func (u *Updater) checkForUpdates() {
+	// 检查 context 是否已取消
+	select {
+	case <-u.ctx.Done():
+		log.Println("更新检查已取消")
+		return
+	default:
+	}
+
 	log.Println("正在检查更新...")
 
 	var hasUpdate bool
@@ -131,17 +139,31 @@ func (u *Updater) checkForUpdates() {
 
 // checkGitUpdates 从 Git 仓库检查更新
 func (u *Updater) checkGitUpdates() (bool, string) {
+	// 创建带超时的 context（30秒超时）
+	ctx, cancel := context.WithTimeout(u.ctx, 30*time.Second)
+	defer cancel()
+
 	// 创建临时目录克隆仓库
 	tempDir := filepath.Join(os.TempDir(), "polywin_update_check")
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		// 异步清理临时目录，避免阻塞
+		go func() {
+			time.Sleep(1 * time.Second)
+			os.RemoveAll(tempDir)
+		}()
+	}()
 
-	repo, err := git.PlainClone(tempDir, false, &git.CloneOptions{
+	repo, err := git.PlainCloneContext(ctx, tempDir, false, &git.CloneOptions{
 		URL:      u.config.RepoURL,
 		Progress: os.Stdout,
 		Depth:    1,
 	})
 	if err != nil {
-		log.Printf("克隆仓库失败: %v", err)
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("克隆仓库超时（30秒）")
+		} else {
+			log.Printf("克隆仓库失败: %v", err)
+		}
 		return false, ""
 	}
 
@@ -177,7 +199,18 @@ func (u *Updater) checkGitUpdates() (bool, string) {
 
 // checkURLUpdates 从更新 URL 检查更新
 func (u *Updater) checkURLUpdates() (bool, string) {
-	resp, err := http.Get(u.config.UpdateURL)
+	// 创建带超时的 HTTP 客户端（10秒超时）
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(u.ctx, "GET", u.config.UpdateURL, nil)
+	if err != nil {
+		log.Printf("创建请求失败: %v", err)
+		return false, ""
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("获取更新信息失败: %v", err)
 		return false, ""
@@ -352,10 +385,17 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 		},
 	}
 
+	// 创建带超时的 HTTP 客户端（15秒超时）
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
 	// 首先尝试从 Releases API 获取
 	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
-	resp, err := http.Get(apiURL)
-	if err == nil && resp.StatusCode == http.StatusOK {
+	req, err := http.NewRequestWithContext(u.ctx, "GET", apiURL, nil)
+	if err == nil {
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
 		var release struct {
 			TagName string `json:"tag_name"`
 			Assets  []struct {
@@ -373,8 +413,10 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 					break
 				}
 			}
+			resp.Body.Close()
+		} else if err != nil {
+			log.Printf("获取 GitHub Releases API 失败: %v", err)
 		}
-		resp.Body.Close()
 	}
 
 	// 尝试每个下载源
@@ -401,7 +443,17 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 
 // downloadFileToPath 下载文件到指定路径
 func (u *Updater) downloadFileToPath(url, outputPath string) error {
-	resp, err := http.Get(url)
+	// 创建带超时的 HTTP 客户端（60秒超时，下载文件需要更长时间）
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(u.ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("请求失败: %v", err)
 	}
