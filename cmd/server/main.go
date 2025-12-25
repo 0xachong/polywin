@@ -15,6 +15,9 @@ import (
 
 var (
 	serverVersion = "1.0.0"
+	serverTag     = "dev"
+	serverCommit  = "unknown"
+	serverBuildTime = "unknown"
 	serverPort    = "8099"
 	serverHost    = "0.0.0.0" // 默认监听所有网络接口，支持公网访问
 )
@@ -76,13 +79,6 @@ func main() {
 		})
 	})
 
-	// 版本信息接口
-	router.GET("/version", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"version": serverVersion,
-			"port":    serverPort,
-		})
-	})
 
 	// 根路径
 	router.GET("/", func(c *gin.Context) {
@@ -93,7 +89,7 @@ func main() {
 		})
 	})
 
-	// 获取请求来源 IP 和设备信息
+	// 获取请求来源 IP 和设备信息，以及服务器版本信息
 	router.GET("/info", func(c *gin.Context) {
 		// 获取客户端 IP
 		clientIP := c.ClientIP()
@@ -126,6 +122,10 @@ func main() {
 			"user_agent":   userAgent,
 			"device_info":  deviceInfo,
 			"request_time": time.Now().Format("2006-01-02 15:04:05"),
+			"version":      serverVersion,
+			"tag":          serverTag,
+			"commit":       serverCommit,
+			"build_time":  serverBuildTime,
 		})
 	})
 
@@ -146,9 +146,10 @@ func main() {
 	log.Printf("HTTP 服务器已启动，监听地址: %s", addr)
 	log.Printf("本地访问: http://localhost:%s", serverPort)
 	log.Printf("公网访问: http://<your-ip>:%s", serverPort)
+	log.Printf("版本信息: %s (tag: %s, commit: %s, build: %s)", serverVersion, serverTag, serverCommit, serverBuildTime)
 	log.Println("API 接口:")
 	log.Println("  GET /ping    - Ping/Pong 健康检查")
-	log.Println("  GET /version - 版本信息")
+	log.Println("  GET /info    - 请求来源信息和服务器版本信息")
 	log.Println("  GET /        - 服务状态")
 
 	// 等待中断信号以优雅关闭服务器
