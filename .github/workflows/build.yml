@@ -33,8 +33,29 @@ jobs:
 
     - name: Build server.exe
       run: |
-        GOOS=windows GOARCH=amd64 go build -o server.exe -ldflags "-X main.serverVersion=${GITHUB_REF_NAME:-dev}" ./cmd/server
+        # 获取 Git 信息
+        # 如果是 tag 推送，使用 tag 名称；否则尝试获取最新 tag
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          GIT_TAG="${{ github.ref_name }}"
+        else
+          GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+        fi
+        GIT_COMMIT=$(git rev-parse --short HEAD)
+        BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        # 版本号：如果是 tag 则使用 tag，否则使用 commit short hash
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          SERVER_VERSION="${{ github.ref_name }}"
+        else
+          SERVER_VERSION="${GIT_COMMIT}"
+        fi
+        GOOS=windows GOARCH=amd64 go build -o server.exe \
+          -ldflags "-X main.serverVersion=${SERVER_VERSION} -X main.serverTag=${GIT_TAG} -X main.serverCommit=${GIT_COMMIT} -X main.serverBuildTime=${BUILD_TIME}" \
+          ./cmd/server
         echo "✓ server.exe 构建完成"
+        echo "  版本: ${SERVER_VERSION}"
+        echo "  Tag: ${GIT_TAG}"
+        echo "  Commit: ${GIT_COMMIT}"
+        echo "  构建时间: ${BUILD_TIME}"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
