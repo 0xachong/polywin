@@ -114,12 +114,12 @@ func (u *Updater) checkForUpdates() {
 	var newVersion string
 
 	if u.config.RepoURL != "" {
-		// 优先检查 GitHub Releases 版本（更准确）
+		// 优先检查 GitHub Releases 版本（更准确，不需要克隆仓库）
 		hasUpdate, newVersion = u.checkGitHubReleases()
-		if !hasUpdate {
-			// 如果 Releases 没有更新，再检查 Git commit（作为备用）
-			hasUpdate, newVersion = u.checkGitUpdates()
-		}
+		// 不再检查 Git commit，因为：
+		// 1. GitHub Releases 已经能准确反映版本
+		// 2. Git 克隆会产生大量输出和网络流量
+		// 3. 检查速度更快
 	} else if u.config.UpdateURL != "" {
 		// 从更新 URL 检查更新
 		hasUpdate, newVersion = u.checkURLUpdates()
@@ -163,7 +163,7 @@ func (u *Updater) checkGitUpdates() (bool, string) {
 
 	repo, err := git.PlainCloneContext(ctx, tempDir, false, &git.CloneOptions{
 		URL:      u.config.RepoURL,
-		Progress: os.Stdout,
+		Progress: nil, // 不输出 Git 进度信息，减少日志噪音
 		Depth:    1,
 	})
 	if err != nil {
