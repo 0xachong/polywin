@@ -329,6 +329,109 @@ func (u *Updater) downloadNewVersion(targetDir, execName string) error {
 	return nil
 }
 
+// downloadServerFromGitHubReleases 从 GitHub Releases 下载 server.exe
+func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) error {
+	log.Println("开始从 GitHub Releases 下载新版本...")
+
+	// 尝试多个下载源
+	downloadSources := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "GitHub Releases (latest)",
+			url:  "", // 需要从 API 获取
+		},
+		{
+			name: "GitHub Releases (latest tag)",
+			url:  "https://github.com/0xachong/polywin/releases/latest/download/server.exe",
+		},
+		{
+			name: "GitHub raw (releases 目录)",
+			url:  "https://raw.githubusercontent.com/0xachong/polywin/main/releases/server.exe",
+		},
+	}
+
+	// 首先尝试从 Releases API 获取
+	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
+	resp, err := http.Get(apiURL)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		var release struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
+			// 查找 server.exe
+			for _, asset := range release.Assets {
+				if asset.Name == "server.exe" {
+					downloadSources[0].url = asset.BrowserDownloadURL
+					log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
+					break
+				}
+			}
+		}
+		resp.Body.Close()
+	}
+
+	// 尝试每个下载源
+	outputPath := filepath.Join(targetDir, execName+".new")
+	var lastErr error
+	for _, source := range downloadSources {
+		if source.url == "" {
+			continue
+		}
+
+		log.Printf("尝试从 %s 下载...", source.name)
+		if err := u.downloadFileToPath(source.url, outputPath); err != nil {
+			log.Printf("从 %s 下载失败: %v", source.name, err)
+			lastErr = err
+			continue
+		}
+
+		log.Printf("从 %s 下载成功！", source.name)
+		return nil
+	}
+
+	return fmt.Errorf("所有下载源都失败，最后一个错误: %v", lastErr)
+}
+
+// downloadFileToPath 下载文件到指定路径
+func (u *Updater) downloadFileToPath(url, outputPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP 状态码: %d", resp.StatusCode)
+	}
+
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("创建文件失败: %v", err)
+	}
+	defer outFile.Close()
+
+	written, err := io.Copy(outFile, resp.Body)
+	if err != nil {
+		os.Remove(outputPath)
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+
+	if written == 0 {
+		os.Remove(outputPath)
+		return fmt.Errorf("下载的文件为空")
+	}
+
+	log.Printf("下载完成，文件大小: %d 字节", written)
+	return nil
+}
+
 // updateTarget 更新目标程序（不重启，由守护程序负责重启）
 func (u *Updater) updateTarget(targetPath string) error {
 	log.Println("准备更新目标程序...")
