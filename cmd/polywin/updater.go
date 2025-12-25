@@ -45,6 +45,7 @@ type Updater struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	lastCommit     string
+	lastReleaseTag string // 记录最后检查的 release tag
 	pendingUpdate  bool
 	updateMutex    sync.Mutex
 }
@@ -113,8 +114,12 @@ func (u *Updater) checkForUpdates() {
 	var newVersion string
 
 	if u.config.RepoURL != "" {
-		// 从 Git 仓库检查更新
-		hasUpdate, newVersion = u.checkGitUpdates()
+		// 优先检查 GitHub Releases 版本（更准确）
+		hasUpdate, newVersion = u.checkGitHubReleases()
+		if !hasUpdate {
+			// 如果 Releases 没有更新，再检查 Git commit（作为备用）
+			hasUpdate, newVersion = u.checkGitUpdates()
+		}
 	} else if u.config.UpdateURL != "" {
 		// 从更新 URL 检查更新
 		hasUpdate, newVersion = u.checkURLUpdates()
@@ -195,6 +200,77 @@ func (u *Updater) checkGitUpdates() (bool, string) {
 	if currentCommit != u.lastCommit {
 		u.lastCommit = currentCommit
 		return true, currentCommit[:8] // 返回短哈希作为版本号
+	}
+
+	return false, ""
+}
+
+// checkGitHubReleases 从 GitHub Releases 检查更新
+func (u *Updater) checkGitHubReleases() (bool, string) {
+	// 创建带超时的 HTTP 客户端（15秒超时）
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
+	// 从 GitHub Releases API 获取最新版本
+	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
+	req, err := http.NewRequestWithContext(u.ctx, "GET", apiURL, nil)
+	if err != nil {
+		log.Printf("创建 GitHub Releases API 请求失败: %v", err)
+		return false, ""
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("获取 GitHub Releases 信息失败: %v", err)
+		return false, ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("GitHub Releases API 返回错误状态码: %d", resp.StatusCode)
+		return false, ""
+	}
+
+	var release struct {
+		TagName     string `json:"tag_name"`
+		PublishedAt string `json:"published_at"`
+		Assets      []struct {
+			Name string `json:"name"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		log.Printf("解析 GitHub Releases 信息失败: %v", err)
+		return false, ""
+	}
+
+	// 检查是否有 server.exe
+	hasServerExe := false
+	for _, asset := range release.Assets {
+		if asset.Name == "server.exe" {
+			hasServerExe = true
+			break
+		}
+	}
+
+	if !hasServerExe {
+		log.Printf("最新 Release (%s) 中没有 server.exe，跳过", release.TagName)
+		return false, ""
+	}
+
+	// 如果是第一次检查，保存当前 release tag
+	if u.lastReleaseTag == "" {
+		u.lastReleaseTag = release.TagName
+		log.Printf("初始化 Release Tag: %s", release.TagName)
+		return false, ""
+	}
+
+	// 检查是否有新版本
+	if release.TagName != u.lastReleaseTag {
+		log.Printf("检测到新的 Release: %s (当前: %s)", release.TagName, u.lastReleaseTag)
+		u.lastReleaseTag = release.TagName
+		return true, release.TagName
 	}
 
 	return false, ""
