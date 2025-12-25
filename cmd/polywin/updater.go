@@ -464,7 +464,9 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 			continue
 		}
 
-		log.Printf("从 %s 下载成功！文件大小: %d 字节", source.name, info.Size())
+		// 再次获取文件信息以确认
+		fileInfo, _ := os.Stat(outputPath)
+		log.Printf("从 %s 下载成功！文件大小: %d 字节", source.name, fileInfo.Size())
 		return nil
 	}
 
