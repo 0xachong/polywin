@@ -396,21 +396,22 @@ func (u *Updater) downloadServerFromGitHubReleases(targetDir, execName string) e
 	if err == nil {
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
-		var release struct {
-			TagName string `json:"tag_name"`
-			Assets  []struct {
-				Name               string `json:"name"`
-				BrowserDownloadURL string `json:"browser_download_url"`
-			} `json:"assets"`
-		}
+			var release struct {
+				TagName string `json:"tag_name"`
+				Assets  []struct {
+					Name               string `json:"name"`
+					BrowserDownloadURL string `json:"browser_download_url"`
+				} `json:"assets"`
+			}
 
-		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
-			// 查找 server.exe
-			for _, asset := range release.Assets {
-				if asset.Name == "server.exe" {
-					downloadSources[0].url = asset.BrowserDownloadURL
-					log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
-					break
+			if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
+				// 查找 server.exe
+				for _, asset := range release.Assets {
+					if asset.Name == "server.exe" {
+						downloadSources[0].url = asset.BrowserDownloadURL
+						log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
+						break
+					}
 				}
 			}
 			resp.Body.Close()
