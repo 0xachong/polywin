@@ -130,74 +130,12 @@ func (u *Updater) checkForUpdates() {
 		if err := u.performUpdate(newVersion); err != nil {
 			log.Printf("更新失败: %v", err)
 			u.setPendingUpdate(false)
-			// 即使更新失败，也更新 lastCommit，避免重复尝试
-			// 但保留错误信息以便调试
 		} else {
 			log.Println("更新完成，等待服务器程序重启以应用更新")
 		}
 	} else {
 		log.Println("当前已是最新版本")
 	}
-}
-
-// checkGitUpdates 从 Git 仓库检查更新
-func (u *Updater) checkGitUpdates() (bool, string) {
-	// 创建带超时的 context（30秒超时）
-	ctx, cancel := context.WithTimeout(u.ctx, 30*time.Second)
-	defer cancel()
-
-	// 创建临时目录克隆仓库
-	tempDir := filepath.Join(os.TempDir(), "polywin_update_check")
-	defer func() {
-		// 异步清理临时目录，避免阻塞
-		go func() {
-			time.Sleep(1 * time.Second)
-			os.RemoveAll(tempDir)
-		}()
-	}()
-
-	repo, err := git.PlainCloneContext(ctx, tempDir, false, &git.CloneOptions{
-		URL:      u.config.RepoURL,
-		Progress: nil, // 不输出 Git 进度信息，减少日志噪音
-		Depth:    1,
-	})
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("克隆仓库超时（30秒）")
-		} else {
-			log.Printf("克隆仓库失败: %v", err)
-		}
-		return false, ""
-	}
-
-	ref, err := repo.Head()
-	if err != nil {
-		log.Printf("获取 HEAD 失败: %v", err)
-		return false, ""
-	}
-
-	commit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		log.Printf("获取提交信息失败: %v", err)
-		return false, ""
-	}
-
-	currentCommit := commit.Hash.String()
-
-	// 如果是第一次检查，保存当前提交
-	if u.lastCommit == "" {
-		u.lastCommit = currentCommit
-		log.Printf("初始化提交哈希: %s", currentCommit)
-		return false, ""
-	}
-
-	// 检查是否有新提交
-	if currentCommit != u.lastCommit {
-		u.lastCommit = currentCommit
-		return true, currentCommit[:8] // 返回短哈希作为版本号
-	}
-
-	return false, ""
 }
 
 // checkGitHubReleases 从 GitHub Releases 检查更新
@@ -340,110 +278,6 @@ func (u *Updater) performUpdate(newVersion string) error {
 	}
 
 	log.Printf("更新流程完成")
-	return nil
-}
-
-// buildNewVersion 构建新版本
-func (u *Updater) buildNewVersion(targetDir, execName string) error {
-	log.Println("开始构建新版本...")
-
-	// 创建临时目录
-	tempDir := filepath.Join(os.TempDir(), "polywin_build")
-	defer os.RemoveAll(tempDir)
-
-	// 克隆仓库（支持 HTTPS 和 SSH 格式）
-	repoURL := u.config.RepoURL
-	// 如果 URL 格式是 github.com:user/repo.git，转换为 SSH 格式
-	if strings.HasPrefix(repoURL, "github.com:") {
-		repoURL = "git@" + repoURL
-	}
-
-	_, err := git.PlainClone(tempDir, false, &git.CloneOptions{
-		URL:      repoURL,
-		Progress: os.Stdout,
-	})
-	if err != nil {
-		return fmt.Errorf("克隆仓库失败: %v", err)
-	}
-
-	// 构建 server 可执行文件（从 cmd/server 目录）
-	outputPath := filepath.Join(targetDir, execName+".new")
-
-	// 构建 server 程序
-	var buildCmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		buildCmd = exec.Command("go", "build", "-o", outputPath, "./cmd/server")
-	} else {
-		buildCmd = exec.Command("go", "build", "-o", outputPath, "./cmd/server")
-	}
-
-	buildCmd.Dir = tempDir
-	buildCmd.Env = os.Environ()
-
-	output, err := buildCmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("构建失败: %v, 输出: %s", err, string(output))
-	}
-
-	log.Println("构建完成")
-	return nil
-}
-
-// downloadNewVersion 下载新版本
-func (u *Updater) downloadNewVersion(targetDir, execName string) error {
-	log.Println("开始下载新版本...")
-
-	// 获取更新信息
-	resp, err := http.Get(u.config.UpdateURL)
-	if err != nil {
-		return fmt.Errorf("获取更新信息失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var updateInfo UpdateInfo
-	if err := json.NewDecoder(resp.Body).Decode(&updateInfo); err != nil {
-		return fmt.Errorf("解析更新信息失败: %v", err)
-	}
-
-	// 下载新版本
-	downloadResp, err := http.Get(updateInfo.DownloadURL)
-	if err != nil {
-		return fmt.Errorf("下载新版本失败: %v", err)
-	}
-	defer downloadResp.Body.Close()
-
-	outputPath := filepath.Join(targetDir, execName+".new")
-	outFile, err := os.Create(outputPath)
-	if err != nil {
-		return fmt.Errorf("创建输出文件失败: %v", err)
-	}
-	defer outFile.Close()
-
-	// 计算校验和
-	hash := sha256.New()
-	tee := io.TeeReader(downloadResp.Body, hash)
-
-	if _, err := io.Copy(outFile, tee); err != nil {
-		return fmt.Errorf("写入文件失败: %v", err)
-	}
-
-	// 验证校验和
-	calculatedChecksum := hex.EncodeToString(hash.Sum(nil))
-	if updateInfo.Checksum != "" && calculatedChecksum != updateInfo.Checksum {
-		os.Remove(outputPath)
-		return fmt.Errorf("校验和不匹配: 期望 %s, 实际 %s", updateInfo.Checksum, calculatedChecksum)
-	}
-
-	// 在 Windows 上设置可执行权限
-	if runtime.GOOS == "windows" {
-		// Windows 不需要特殊权限设置
-	} else {
-		if err := os.Chmod(outputPath, 0755); err != nil {
-			return fmt.Errorf("设置可执行权限失败: %v", err)
-		}
-	}
-
-	log.Println("下载完成")
 	return nil
 }
 
