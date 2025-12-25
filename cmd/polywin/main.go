@@ -1,6 +1,3 @@
-//go:build !server
-// +build !server
-
 package main
 
 import (
@@ -15,7 +12,7 @@ import (
 )
 
 var (
-	version          = "1.0.0"
+	version = "1.0.0"
 	// 硬编码的配置
 	repoURL          = "https://github.com/0xachong/polywin.git"
 	targetExecutable = "server.exe"
@@ -43,12 +40,7 @@ func main() {
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 		log.Printf("目标程序 %s 不存在，尝试构建...", targetPath)
 		if err := buildServer(execDir); err != nil {
-			log.Printf("构建失败: %v，尝试从当前目录查找 server.go...", err)
-			// 如果构建失败，尝试从当前目录构建
-			wd, _ := os.Getwd()
-			if err := buildServerFromDir(wd, execDir); err != nil {
-				log.Fatalf("无法构建目标程序，请确保 server.go 文件存在: %v", err)
-			}
+			log.Fatalf("无法构建目标程序: %v", err)
 		}
 		log.Printf("目标程序构建成功: %s", targetPath)
 	}
@@ -86,31 +78,50 @@ func main() {
 	os.Exit(0)
 }
 
-// buildServer 构建服务器程序（从可执行文件所在目录查找 server.go）
+// buildServer 构建服务器程序
 func buildServer(targetDir string) error {
 	log.Println("开始构建服务器程序...")
 
-	// 首先尝试从可执行文件所在目录查找 server.go
-	serverGoPath := filepath.Join(targetDir, "server.go")
-	if _, err := os.Stat(serverGoPath); err == nil {
-		return buildServerFromFile(serverGoPath, targetDir)
+	// 获取项目根目录（从可执行文件位置推断）
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("获取可执行文件路径失败: %v", err)
 	}
-
-	// 如果不存在，尝试从当前工作目录查找
+	execDir := filepath.Dir(execPath)
+	
+	// 尝试从项目根目录构建（假设在 releases 目录或项目根目录）
+	projectRoots := []string{
+		filepath.Join(execDir, ".."),           // 如果在 releases 目录
+		execDir,                                // 如果在项目根目录
+		filepath.Join(execDir, "..", ".."),     // 如果在更深层目录
+	}
+	
+	for _, root := range projectRoots {
+		root, _ = filepath.Abs(root)
+		serverDir := filepath.Join(root, "cmd", "server")
+		if _, err := os.Stat(serverDir); err == nil {
+			return buildServerFromProject(root, targetDir)
+		}
+	}
+	
+	// 如果找不到项目目录，尝试从当前工作目录
 	wd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("获取工作目录失败: %v", err)
 	}
-	return buildServerFromDir(wd, targetDir)
+	return buildServerFromProject(wd, targetDir)
 }
 
-// buildServerFromFile 从指定文件构建
-func buildServerFromFile(serverGoPath, targetDir string) error {
-	serverDir := filepath.Dir(serverGoPath)
-	outputPath := filepath.Join(targetDir, "server.exe")
+// buildServerFromProject 从项目根目录构建
+func buildServerFromProject(projectRoot, targetDir string) error {
+	serverDir := filepath.Join(projectRoot, "cmd", "server")
+	if _, err := os.Stat(serverDir); os.IsNotExist(err) {
+		return fmt.Errorf("cmd/server 目录不存在于: %s", projectRoot)
+	}
 	
-	buildCmd := exec.Command("go", "build", "-tags", "server", "-o", outputPath, "server.go")
-	buildCmd.Dir = serverDir
+	outputPath := filepath.Join(targetDir, "server.exe")
+	buildCmd := exec.Command("go", "build", "-o", outputPath, "./cmd/server")
+	buildCmd.Dir = projectRoot
 	buildCmd.Env = os.Environ()
 
 	output, err := buildCmd.CombinedOutput()
@@ -124,15 +135,6 @@ func buildServerFromFile(serverGoPath, targetDir string) error {
 
 	log.Printf("服务器程序构建完成: %s", outputPath)
 	return nil
-}
-
-// buildServerFromDir 从指定目录构建
-func buildServerFromDir(sourceDir, targetDir string) error {
-	serverGoPath := filepath.Join(sourceDir, "server.go")
-	if _, err := os.Stat(serverGoPath); os.IsNotExist(err) {
-		return fmt.Errorf("server.go 文件不存在于: %s", sourceDir)
-	}
-	return buildServerFromFile(serverGoPath, targetDir)
 }
 
 // startServer 启动服务器程序
