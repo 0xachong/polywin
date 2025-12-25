@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -36,13 +39,13 @@ func main() {
 	execDir := filepath.Dir(execPath)
 	targetPath := filepath.Join(execDir, targetExecutable)
 
-	// 检查目标程序是否存在，不存在则尝试构建
+	// 检查目标程序是否存在，不存在则从 GitHub Releases 下载
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
-		log.Printf("目标程序 %s 不存在，尝试构建...", targetPath)
-		if err := buildServer(execDir); err != nil {
-			log.Fatalf("无法构建目标程序: %v", err)
+		log.Printf("目标程序 %s 不存在，尝试从 GitHub Releases 下载...", targetPath)
+		if err := downloadServerFromGitHub(execDir); err != nil {
+			log.Fatalf("无法下载目标程序: %v", err)
 		}
-		log.Printf("目标程序构建成功: %s", targetPath)
+		log.Printf("目标程序下载成功: %s", targetPath)
 	}
 
 	// 创建更新器
@@ -78,62 +81,78 @@ func main() {
 	os.Exit(0)
 }
 
-// buildServer 构建服务器程序
-func buildServer(targetDir string) error {
-	log.Println("开始构建服务器程序...")
+// downloadServerFromGitHub 从 GitHub Releases 下载 server.exe
+func downloadServerFromGitHub(targetDir string) error {
+	log.Println("正在从 GitHub Releases 下载 server.exe...")
 
-	// 获取项目根目录（从可执行文件位置推断）
-	execPath, err := os.Executable()
+	// GitHub Releases API
+	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
+	
+	// 获取最新版本信息
+	resp, err := http.Get(apiURL)
 	if err != nil {
-		return fmt.Errorf("获取可执行文件路径失败: %v", err)
+		return fmt.Errorf("获取 Releases 信息失败: %v", err)
 	}
-	execDir := filepath.Dir(execPath)
-	
-	// 尝试从项目根目录构建（假设在 releases 目录或项目根目录）
-	projectRoots := []string{
-		filepath.Join(execDir, ".."),           // 如果在 releases 目录
-		execDir,                                // 如果在项目根目录
-		filepath.Join(execDir, "..", ".."),     // 如果在更深层目录
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub API 返回错误状态码: %d", resp.StatusCode)
 	}
-	
-	for _, root := range projectRoots {
-		root, _ = filepath.Abs(root)
-		serverDir := filepath.Join(root, "cmd", "server")
-		if _, err := os.Stat(serverDir); err == nil {
-			return buildServerFromProject(root, targetDir)
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("解析 Releases 信息失败: %v", err)
+	}
+
+	// 查找 server.exe
+	var serverURL string
+	for _, asset := range release.Assets {
+		if asset.Name == "server.exe" {
+			serverURL = asset.BrowserDownloadURL
+			break
 		}
 	}
-	
-	// 如果找不到项目目录，尝试从当前工作目录
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("获取工作目录失败: %v", err)
-	}
-	return buildServerFromProject(wd, targetDir)
-}
 
-// buildServerFromProject 从项目根目录构建
-func buildServerFromProject(projectRoot, targetDir string) error {
-	serverDir := filepath.Join(projectRoot, "cmd", "server")
-	if _, err := os.Stat(serverDir); os.IsNotExist(err) {
-		return fmt.Errorf("cmd/server 目录不存在于: %s", projectRoot)
+	if serverURL == "" {
+		return fmt.Errorf("未找到 server.exe，请确保 GitHub Releases 中有该文件")
 	}
-	
+
+	log.Printf("找到 server.exe，版本: %s，开始下载...", release.TagName)
+
+	// 下载 server.exe
+	downloadResp, err := http.Get(serverURL)
+	if err != nil {
+		return fmt.Errorf("下载 server.exe 失败: %v", err)
+	}
+	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("下载失败，状态码: %d", downloadResp.StatusCode)
+	}
+
+	// 保存文件
 	outputPath := filepath.Join(targetDir, "server.exe")
-	buildCmd := exec.Command("go", "build", "-o", outputPath, "./cmd/server")
-	buildCmd.Dir = projectRoot
-	buildCmd.Env = os.Environ()
-
-	output, err := buildCmd.CombinedOutput()
+	outFile, err := os.Create(outputPath)
 	if err != nil {
-		return fmt.Errorf("构建失败: %v, 输出: %s", err, string(output))
+		return fmt.Errorf("创建文件失败: %v", err)
+	}
+	defer outFile.Close()
+
+	// 复制内容
+	written, err := io.Copy(outFile, downloadResp.Body)
+	if err != nil {
+		os.Remove(outputPath)
+		return fmt.Errorf("写入文件失败: %v", err)
 	}
 
-	if len(output) > 0 {
-		log.Printf("构建输出: %s", string(output))
-	}
-
-	log.Printf("服务器程序构建完成: %s", outputPath)
+	log.Printf("下载完成，文件大小: %d 字节", written)
 	return nil
 }
 

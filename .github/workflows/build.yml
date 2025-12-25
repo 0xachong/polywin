@@ -52,20 +52,43 @@ jobs:
           ## PolyWin Release ${{ github.ref_name }}
           
           ### 文件说明
-          - **polywin.exe** - 守护程序（热更新管理器）
+          - **polywin.exe** - 守护程序（热更新管理器，会自动下载 server.exe）
           - **server.exe** - HTTP 服务器（被更新的目标程序）
           
-          ### 使用方法
-          1. 下载 `polywin.exe` 和 `server.exe`
-          2. 将两个文件放在同一目录
-          3. 双击 `polywin.exe` 即可运行
+          ### 使用方法（推荐）
+          1. **只需下载 `polywin.exe`**
+          2. 双击运行，程序会自动从 GitHub Releases 下载 `server.exe`
+          3. 自动启动 HTTP 服务（端口 8099）
           
           ### 功能
+          - 自动从 GitHub Releases 下载 server.exe
           - 自动监控 Git 仓库更新
           - 自动构建和重启服务器
           - HTTP 服务端口：8099
         draft: false
         prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create Release (on main branch push)
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          server.exe
+        tag_name: latest
+        name: Latest Build
+        body: |
+          ## Latest Build
+          
+          ### 文件说明
+          - **server.exe** - HTTP 服务器（最新构建版本）
+          
+          ### 注意
+          - 这是自动构建的最新版本
+          - `polywin.exe` 会自动从这里下载 `server.exe`
+        draft: false
+        prerelease: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
