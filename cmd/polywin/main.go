@@ -85,15 +85,11 @@ func main() {
 func downloadServerFromGitHub(targetDir string) error {
 	log.Println("正在从 GitHub 下载 server.exe...")
 
-	// 尝试多个下载源
+	// 尝试多个下载源（不再使用 GitHub API，避免 403 问题）
 	downloadSources := []struct {
 		name string
 		url  string
 	}{
-		{
-			name: "GitHub Releases (latest)",
-			url:  "", // 需要从 API 获取
-		},
 		{
 			name: "GitHub Releases (latest tag)",
 			url:  "https://github.com/0xachong/polywin/releases/latest/download/server.exe",
@@ -102,56 +98,6 @@ func downloadServerFromGitHub(targetDir string) error {
 			name: "GitHub raw (releases 目录)",
 			url:  "https://raw.githubusercontent.com/0xachong/polywin/main/releases/server.exe",
 		},
-	}
-
-	// 创建带超时的 HTTP 客户端（15秒超时）
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
-	// 首先尝试从 Releases API 获取
-	apiURL := "https://api.github.com/repos/0xachong/polywin/releases/latest"
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		log.Printf("创建 GitHub Releases API 请求失败: %v，将使用备用下载源", err)
-	} else {
-		// 添加 User-Agent 头，GitHub API 要求必须有 User-Agent
-		req.Header.Set("User-Agent", "PolyWin-Updater/1.0")
-		// 添加 Accept 头，明确请求 JSON 格式
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("获取 GitHub Releases API 失败: %v，将使用备用下载源", err)
-		} else {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				var release struct {
-					TagName string `json:"tag_name"`
-					Assets  []struct {
-						Name               string `json:"name"`
-						BrowserDownloadURL string `json:"browser_download_url"`
-					} `json:"assets"`
-				}
-
-				if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
-					// 查找 server.exe
-					for _, asset := range release.Assets {
-						if asset.Name == "server.exe" {
-							downloadSources[0].url = asset.BrowserDownloadURL
-							log.Printf("从 GitHub Releases 找到 server.exe，版本: %s", release.TagName)
-							break
-						}
-					}
-				}
-			} else if resp.StatusCode == http.StatusForbidden {
-				log.Printf("GitHub Releases API 返回 403（请求频率限制），将使用备用下载源")
-			} else if resp.StatusCode == http.StatusNotFound {
-				log.Printf("GitHub Releases API 返回 404（可能还没有 Release），将使用备用下载源")
-			} else {
-				log.Printf("GitHub Releases API 返回状态码: %d，将使用备用下载源", resp.StatusCode)
-			}
-		}
 	}
 
 	// 尝试每个下载源
