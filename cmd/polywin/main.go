@@ -202,12 +202,12 @@ func monitorServer(serverPath string, updater *Updater) {
 			// 检查是否有待处理的更新
 			if updater.HasPendingUpdate() {
 				log.Println("检测到待更新版本，等待文件替换完成...")
-				
+
 				// 检查新版本文件是否存在
 				newExecPath := serverPath + ".new"
 				maxWait := 30 // 最多等待30秒
 				waited := 0
-				
+
 				for waited < maxWait {
 					// 检查新版本文件是否存在
 					if _, err := os.Stat(newExecPath); err == nil {
@@ -219,14 +219,14 @@ func monitorServer(serverPath string, updater *Updater) {
 							break
 						}
 					}
-					
+
 					time.Sleep(1 * time.Second)
 					waited++
 					if waited%5 == 0 {
 						log.Printf("等待文件替换中... (%d/%d 秒)", waited, maxWait)
 					}
 				}
-				
+
 				if waited >= maxWait {
 					log.Println("等待文件替换超时，尝试直接重启...")
 					updater.setPendingUpdate(false)

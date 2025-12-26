@@ -167,7 +167,7 @@ func (u *Updater) checkUpdateByDownload() (bool, string) {
 	// 如果返回 200 或其他成功状态，说明文件存在
 	// 检查文件大小（通过 Content-Length）
 	contentLength := resp.ContentLength
-	
+
 	// 如果是第一次检查，保存当前文件大小
 	if u.lastReleaseTag == "" {
 		if contentLength > 0 {
@@ -180,7 +180,7 @@ func (u *Updater) checkUpdateByDownload() (bool, string) {
 	// 比较文件大小，如果不同说明有新版本
 	currentSize := u.lastReleaseTag
 	newSize := fmt.Sprintf("%d", contentLength)
-	
+
 	if newSize != currentSize && contentLength > 0 {
 		log.Printf("检测到新版本（文件大小变化: %s -> %s 字节）", currentSize, newSize)
 		u.lastReleaseTag = newSize

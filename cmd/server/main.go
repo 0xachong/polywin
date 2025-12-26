@@ -15,12 +15,12 @@ import (
 )
 
 var (
-	serverVersion = "1.0.0"
-	serverTag     = "dev"
-	serverCommit  = "unknown"
+	serverVersion   = "1.0.0"
+	serverTag       = "dev"
+	serverCommit    = "unknown"
 	serverBuildTime = "unknown"
-	serverPort    = "8099"
-	serverHost    = "0.0.0.0" // 默认监听所有网络接口，支持公网访问
+	serverPort      = "8099"
+	serverHost      = "0.0.0.0" // 默认监听所有网络接口，支持公网访问
 )
 
 func main() {
@@ -80,7 +80,6 @@ func main() {
 		})
 	})
 
-
 	// 根路径
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -94,7 +93,7 @@ func main() {
 	router.GET("/info", func(c *gin.Context) {
 		// 获取客户端 IP
 		clientIP := c.ClientIP()
-		
+
 		// 获取真实 IP（考虑代理）
 		realIP := c.GetHeader("X-Real-IP")
 		if realIP == "" {
@@ -113,7 +112,7 @@ func main() {
 
 		// 获取设备信息
 		userAgent := c.GetHeader("User-Agent")
-		
+
 		// 解析 User-Agent 获取设备信息
 		deviceInfo := parseUserAgent(userAgent)
 
@@ -141,7 +140,7 @@ func main() {
 			},
 			// 服务器信息
 			"server": gin.H{
-				"ips":   serverIPs,
+				"ips":    serverIPs,
 				"config": serverConfig,
 			},
 			"request_time": time.Now().Format("2006-01-02 15:04:05"),
